@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quest 3 Posture Monitor</title>
     <style>
         body { margin: 0; overflow: hidden; }
@@ -18,9 +19,7 @@
 </head>
 <body>
     <button id="enter-vr">Enter VR</button>
-    <!-- Include Three.js library from a CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Main Script -->
     <script>
         let scene, camera, renderer;
         let referenceSpace;
@@ -31,61 +30,41 @@
         init();
 
         function init() {
-            // Create scene
             scene = new THREE.Scene();
-
-            // Create camera
-            camera = new THREE.PerspectiveCamera(
-                70,
-                window.innerWidth / window.innerHeight,
-                0.01,
-                1000
-            );
-
-            // Create renderer
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            // Add VR button functionality
             const btn = document.getElementById('enter-vr');
-            btn.addEventListener('click', () => {
-                if (navigator.xr) {
-                    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-                        if (supported) {
-                            renderer.xr.setSessionInit({
-                                optionalFeatures: [
-                                    'local-floor',
-                                    'bounded-floor',
-                                    'hand-tracking',
-                                    'layers',
-                                    'dom-overlay',
-                                    'camera-access',
-                                    'passthrough'
-                                ],
-                                domOverlay: { root: document.body }
-                            });
-                            navigator.xr.requestSession('immersive-vr', {
-                                optionalFeatures: [
-                                    'local-floor',
-                                    'bounded-floor',
-                                    'hand-tracking',
-                                    'layers',
-                                    'dom-overlay',
-                                    'camera-access',
-                                    'passthrough'
-                                ],
-                                domOverlay: { root: document.body }
-                            }).then(onSessionStarted);
-                        } else {
-                            alert('Immersive VR not supported on this device.');
-                        }
-                    });
-                } else {
-                    alert('WebXR not supported in this browser.');
-                }
-            });
+            btn.addEventListener('click', onEnterVR);
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onEnterVR() {
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+                    if (supported) {
+                        navigator.xr.requestSession('immersive-vr', {
+                            optionalFeatures: [
+                                'local-floor',
+                                'bounded-floor',
+                                'hand-tracking',
+                                'layers',
+                                'dom-overlay',
+                                'passthrough'
+                            ],
+                            domOverlay: { root: document.body }
+                        }).then(onSessionStarted);
+                    } else {
+                        alert('Immersive VR not supported on this device.');
+                    }
+                });
+            } else {
+                alert('WebXR not supported in this browser.');
+            }
         }
 
         function onSessionStarted(session) {
@@ -99,28 +78,20 @@
         }
 
         function calibratePosture() {
-            // Wait 2 seconds before calibrating to ensure the XR session is ready
             setTimeout(() => {
                 const xrFrame = renderer.xr.getFrame();
-                const viewerPose = xrFrame.getViewerPose(referenceSpace);
-                if (viewerPose) {
-                    const transform = viewerPose.transform;
-                    referencePose = {
-                        position: {
-                            x: transform.position.x,
-                            y: transform.position.y,
-                            z: transform.position.z
-                        },
-                        orientation: {
-                            x: transform.orientation.x,
-                            y: transform.orientation.y,
-                            z: transform.orientation.z,
-                            w: transform.orientation.w
-                        }
-                    };
-                    alert('Calibration complete. Maintaining this posture will prevent alerts.');
-                } else {
-                    alert('Unable to calibrate posture. Please try again.');
+                if (xrFrame) {
+                    const viewerPose = xrFrame.getViewerPose(referenceSpace);
+                    if (viewerPose) {
+                        const transform = viewerPose.transform;
+                        referencePose = {
+                            position: transform.position.clone(),
+                            orientation: transform.orientation.clone()
+                        };
+                        alert('Calibration complete. Maintaining this posture will prevent alerts.');
+                    } else {
+                        alert('Unable to calibrate posture. Please try again.');
+                    }
                 }
             }, 2000);
         }
@@ -131,26 +102,22 @@
                 return;
             }
 
-            const session = renderer.xr.getSession();
-            const viewerPose = xrFrame.getViewerPose(referenceSpace);
+            if (xrFrame) {
+                const viewerPose = xrFrame.getViewerPose(referenceSpace);
+                if (viewerPose) {
+                    const transform = viewerPose.transform;
+                    const position = transform.position;
+                    const orientation = transform.orientation;
 
-            if (viewerPose) {
-                const transform = viewerPose.transform;
-                const position = transform.position;
-                const orientation = transform.orientation;
+                    const positionDeviation = calculatePositionDeviation(position, referencePose.position);
+                    const orientationDeviation = calculateOrientationDeviation(orientation, referencePose.orientation);
 
-                // Calculate deviations
-                const positionDeviation = calculatePositionDeviation(position, referencePose.position);
-                const orientationDeviation = calculateOrientationDeviation(orientation, referencePose.orientation);
-
-                // Determine if posture is bad
-                badPosture = isBadPosture(positionDeviation, orientationDeviation);
-
-                // Update overlay visibility based on posture
-                updateOverlay();
-
-                renderer.render(scene, camera);
+                    badPosture = isBadPosture(positionDeviation, orientationDeviation);
+                    updateOverlay();
+                }
             }
+
+            renderer.render(scene, camera);
         }
 
         function createOverlay() {
@@ -161,50 +128,41 @@
                 opacity: 0.0
             });
             overlayMesh = new THREE.Mesh(geometry, material);
-            overlayMesh.position.z = -0.5; // Position it in front of the camera
+            overlayMesh.position.z = -0.5;
             camera.add(overlayMesh);
             scene.add(camera);
         }
 
         function updateOverlay() {
-            if (badPosture) {
-                overlayMesh.material.opacity = THREE.MathUtils.lerp(overlayMesh.material.opacity, 0.3, 0.1);
-            } else {
-                overlayMesh.material.opacity = THREE.MathUtils.lerp(overlayMesh.material.opacity, 0.0, 0.1);
+            if (overlayMesh) {
+                if (badPosture) {
+                    overlayMesh.material.opacity = THREE.MathUtils.lerp(overlayMesh.material.opacity, 0.3, 0.1);
+                } else {
+                    overlayMesh.material.opacity = THREE.MathUtils.lerp(overlayMesh.material.opacity, 0.0, 0.1);
+                }
             }
         }
 
         function calculatePositionDeviation(currentPos, referencePos) {
-            const dx = currentPos.x - referencePos.x;
-            const dy = currentPos.y - referencePos.y;
-            const dz = currentPos.z - referencePos.z;
-            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+            return currentPos.distanceTo(referencePos);
         }
 
         function calculateOrientationDeviation(currentOri, referenceOri) {
-            const currentQuat = new THREE.Quaternion(
-                currentOri.x,
-                currentOri.y,
-                currentOri.z,
-                currentOri.w
-            );
-
-            const referenceQuat = new THREE.Quaternion(
-                referenceOri.x,
-                referenceOri.y,
-                referenceOri.z,
-                referenceOri.w
-            );
-
-            const angle = currentQuat.angleTo(referenceQuat);
-            return angle;
+            const currentQuat = new THREE.Quaternion(currentOri.x, currentOri.y, currentOri.z, currentOri.w);
+            const referenceQuat = new THREE.Quaternion(referenceOri.x, referenceOri.y, referenceOri.z, referenceOri.w);
+            return currentQuat.angleTo(referenceQuat);
         }
 
         function isBadPosture(positionDeviation, orientationDeviation) {
-            const positionThreshold = 0.15; // in meters
-            const orientationThreshold = THREE.MathUtils.degToRad(15); // in radians
-
+            const positionThreshold = 0.15;
+            const orientationThreshold = THREE.MathUtils.degToRad(15);
             return positionDeviation > positionThreshold || orientationDeviation > orientationThreshold;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
     </script>
 </body>
