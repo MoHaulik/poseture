@@ -26,10 +26,11 @@
         import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 
         let camera, scene, renderer;
-        let referencePosition, referenceQuaternion;
-        const postureTolerance = 0.1; // Adjust this value to change sensitivity
-
+        let referenceQuaternion;
+        const lookDownThreshold = Math.PI / 6; // 30 degrees threshold for looking down
+        
         const postureAlert = document.getElementById('posture-alert');
+        const clickSound = new Audio('/api/placeholder/audio/click.mp3');
 
         function init() {
             scene = new THREE.Scene();
@@ -68,19 +69,23 @@
 
         function calibratePosture() {
             const xrCamera = renderer.xr.getCamera();
-            referencePosition = xrCamera.position.clone();
             referenceQuaternion = xrCamera.quaternion.clone();
             console.log('Posture calibrated');
+            clickSound.play();
         }
 
         function checkPosture() {
-            if (!referencePosition || !referenceQuaternion) return;
+            if (!referenceQuaternion) return;
 
             const xrCamera = renderer.xr.getCamera();
-            const positionDifference = xrCamera.position.distanceTo(referencePosition);
-            const quaternionDifference = referenceQuaternion.angleTo(xrCamera.quaternion);
+            
+            // Calculate the angle between the current look direction and the reference (calibrated) look direction
+            const currentDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCamera.quaternion);
+            const referenceDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(referenceQuaternion);
+            const angle = currentDirection.angleTo(referenceDirection);
 
-            if (positionDifference > postureTolerance || quaternionDifference > postureTolerance) {
+            // Check if the user is looking down more than the threshold
+            if (angle > lookDownThreshold && currentDirection.y < referenceDirection.y) {
                 postureAlert.style.display = 'block';
             } else {
                 postureAlert.style.display = 'none';
