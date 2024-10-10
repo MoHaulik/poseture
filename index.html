@@ -1,196 +1,210 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset='utf-8'>
-  <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
-  <meta name='mobile-web-app-capable' content='yes'>
-  <meta name='apple-mobile-web-app-capable' content='yes'>
-  <link rel='icon' type='image/png' sizes='32x32' href='favicon-32x32.png'>
-  <link rel='icon' type='image/png' sizes='96x96' href='favicon-96x96.png'>
-  <link rel='stylesheet' href='css/common.css'>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+    <meta name='mobile-web-app-capable' content='yes'>
+    <meta name='apple-mobile-web-app-capable' content='yes'>
+    <link rel='icon' type='image/png' sizes='32x32' href='favicon-32x32.png'>
+    <link rel='icon' type='image/png' sizes='96x96' href='favicon-96x96.png'>
+    <link rel='stylesheet' href='css/common.css'>
+    <title>Barebones AR with Headset Tracking and Timer</title>
+  </head>
+  <body>
+    <div id="overlay">
+      <header>
+        <details open>
+          <summary>Barebones WebXR DOM Overlay</summary>
+          <p>
+            This sample demonstrates extremely simple use of an "immersive-ar"
+            session with no library dependencies, with an optional DOM overlay.
+            It draws a rectangle with a slowly changing color after you've been
+            looking downwards for 5 seconds.
+            <a class="back" href="./index.html">Back</a>
+          </p>
+          <div id="session-info"></div>
+          <div id="pose"></div>
+          <div id="warning-zone"></div>
+          <button id="xr-button" class="barebones-button" disabled>XR not found</button>
+        </details>
+      </header>
+    </div>
+    <main style='text-align: center;'>
+      <p>Click 'Enter AR' to see content</p>
+    </main>
+    <script type="module">
+      // XR globals.
+      let xrButton = document.getElementById('xr-button');
+      let xrSession = null;
+      let xrRefSpace = null;
 
-  <title>Barebones AR</title>
+      // WebGL scene globals.
+      let gl = null;
 
-  <!-- Inline CSS for demonstration purposes -->
-  <style>
-    /* Style for the warning overlay */
-    #warning-zone {
-      display: none; /* Initially hidden */
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      background-color: rgba(255, 0, 0, 0.8);
-      color: white;
-      font-size: 1.2em;
-      border-radius: 5px;
-      z-index: 1000; /* Ensure it's on top */
-    }
-  </style>
-</head>
-<body>
-  <div id="overlay">
-    <header>
-      <details open>
-        <summary>Barebones WebXR DOM Overlay</summary>
-        <p>
-          This sample demonstrates extremely simple use of an "immersive-ar"
-          session with no library dependencies, with an optional DOM overlay.
-          It doesn't render anything exciting, just draws a rectangle with a
-          slowly changing color to prove it's working.
-          <a class="back" href="./index.html">Back</a>
-        </p>
-        <div id="session-info"></div>
-        <div id="pose"></div>
-        <div id="warning-zone">⚠️ Poor Posture Detected!</div>
-        <button id="xr-button" class="barebones-button" disabled>XR not found</button>
-      </details>
-    </header>
-  </div>
-  <main style='text-align: center;'>
-    <p>Click 'Enter AR' to see content</p>
-  </main>
-  <script type="module">
-    // XR globals.
-    let xrButton = document.getElementById('xr-button');
-    let xrSession = null;
-    let xrRefSpace = null;
+      // Variables for tracking head orientation and timing
+      let isLookingDown = false;
+      let lookingDownStartTime = null;
+      const LOOKING_DOWN_THRESHOLD = -30; // Pitch angle in degrees
+      const TIME_THRESHOLD = 5000; // Time in milliseconds (5 seconds)
 
-    // WebGL scene globals.
-    let gl = null;
+      function checkSupportedState() {
+        navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+          if (supported) {
+            xrButton.innerHTML = 'Enter AR';
+          } else {
+            xrButton.innerHTML = 'AR not found';
+          }
 
-    // Position thresholds for poor posture
-    const POOR_POSTURE_THRESHOLD = {
-      x: 0.000,
-      y: -0.014,
-      z: 0.019
-    };
+          xrButton.disabled = !supported;
+        });
+      }
 
-    // DOM elements
-    const warningZone = document.getElementById('warning-zone');
-    const poseElement = document.getElementById('pose');
-
-    function checkSupportedState() {
-      navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-        if (supported) {
-          xrButton.innerHTML = 'Enter AR';
-        } else {
-          xrButton.innerHTML = 'AR not found';
+      function initXR() {
+        if (!window.isSecureContext) {
+          let message = "WebXR unavailable due to insecure context";
+          document.getElementById("warning-zone").innerText = message;
         }
 
-        xrButton.disabled = !supported;
-      });
-    }
-
-    function initXR() {
-      if (!window.isSecureContext) {
-        let message = "WebXR unavailable due to insecure context";
-        document.getElementById("warning-zone").innerText = message;
-        // Optionally, you can style this message differently or handle it as needed
+        if (navigator.xr) {
+          xrButton.addEventListener('click', onButtonClicked);
+          navigator.xr.addEventListener('devicechange', checkSupportedState);
+          checkSupportedState();
+        }
       }
 
-      if (navigator.xr) {
-        xrButton.addEventListener('click', onButtonClicked);
-        navigator.xr.addEventListener('devicechange', checkSupportedState);
-        checkSupportedState();
-      }
-    }
-
-    function onButtonClicked() {
-      if (!xrSession) {
-          // Ask for an optional DOM Overlay, see https://immersive-web.github.io/dom-overlays/
+      function onButtonClicked() {
+        if (!xrSession) {
+          // Ask for an optional DOM Overlay
           navigator.xr.requestSession('immersive-ar', {
-              optionalFeatures: ['dom-overlay'],
-              domOverlay: {root: document.getElementById('overlay')}
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: {root: document.getElementById('overlay')}
           }).then(onSessionStarted, onRequestSessionError);
-      } else {
-        xrSession.end();
-      }
-    }
-
-    function onSessionStarted(session) {
-      xrSession = session;
-      xrButton.innerHTML = 'Exit AR';
-
-      // Show which type of DOM Overlay got enabled (if any)
-      if (session.domOverlayState) {
-        document.getElementById('session-info').innerHTML = 'DOM Overlay type: ' + session.domOverlayState.type;
-      }
-
-      session.addEventListener('end', onSessionEnded);
-      let canvas = document.createElement('canvas');
-      gl = canvas.getContext('webgl', {
-        xrCompatible: true
-      });
-      session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
-      session.requestReferenceSpace('local').then((refSpace) => {
-        xrRefSpace = refSpace;
-        session.requestAnimationFrame(onXRFrame);
-      });
-    }
-
-    function onRequestSessionError(ex) {
-      alert("Failed to start immersive AR session.");
-      console.error(ex.message);
-    }
-
-    function onEndSession(session) {
-      session.end();
-    }
-
-    function onSessionEnded(event) {
-      xrSession = null;
-      xrButton.innerHTML = 'Enter AR';
-      document.getElementById('session-info').innerHTML = '';
-      gl = null;
-      // Hide the warning zone when the session ends
-      warningZone.style.display = 'none';
-    }
-
-    function onXRFrame(t, frame) {
-      let session = frame.session;
-      session.requestAnimationFrame(onXRFrame);
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
-
-      // Update the clear color so that we can observe the color in the
-      // headset changing over time. Use a scissor rectangle to keep the AR
-      // scene visible.
-      const width = session.renderState.baseLayer.framebufferWidth;
-      const height = session.renderState.baseLayer.framebufferHeight;
-      gl.enable(gl.SCISSOR_TEST);
-      gl.scissor(width / 4, height / 4, width / 2, height / 2);
-      let time = Date.now();
-      gl.clearColor(Math.cos(time / 2000), Math.cos(time / 4000), Math.cos(time / 6000), 0.5);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-      let pose = frame.getViewerPose(xrRefSpace);
-      if (pose) {
-        const p = pose.transform.position;
-        poseElement.innerText = "Position: " +
-          p.x.toFixed(3) + ", " + p.y.toFixed(3) + ", " + p.z.toFixed(3);
-
-        // Check for poor posture
-        if (
-          p.x <= POOR_POSTURE_THRESHOLD.x &&
-          p.y <= POOR_POSTURE_THRESHOLD.y &&
-          p.z <= POOR_POSTURE_THRESHOLD.z
-        ) {
-          // Show the warning overlay
-          warningZone.style.display = 'block';
         } else {
-          // Hide the warning overlay
-          warningZone.style.display = 'none';
+          xrSession.end();
         }
-      } else {
-        poseElement.innerText = "Position: (null pose)";
-        // Hide the warning overlay if pose is null
-        warningZone.style.display = 'none';
       }
-    }
 
-    initXR();
-  </script>
-</body>
+      function onSessionStarted(session) {
+        xrSession = session;
+        xrButton.innerHTML = 'Exit AR';
+
+        // Show which type of DOM Overlay got enabled (if any)
+        if (session.domOverlayState) {
+          document.getElementById('session-info').innerHTML = 'DOM Overlay type: ' + session.domOverlayState.type;
+        }
+
+        session.addEventListener('end', onSessionEnded);
+        let canvas = document.createElement('canvas');
+        gl = canvas.getContext('webgl', {
+          xrCompatible: true
+        });
+        session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+        session.requestReferenceSpace('local').then((refSpace) => {
+          xrRefSpace = refSpace;
+          session.requestAnimationFrame(onXRFrame);
+        });
+      }
+
+      function onRequestSessionError(ex) {
+        alert("Failed to start immersive AR session.");
+        console.error(ex.message);
+      }
+
+      function onEndSession(session) {
+        session.end();
+      }
+
+      function onSessionEnded(event) {
+        xrSession = null;
+        xrButton.innerHTML = 'Enter AR';
+        document.getElementById('session-info').innerHTML = '';
+        gl = null;
+      }
+
+      function onXRFrame(t, frame) {
+        let session = frame.session;
+        session.requestAnimationFrame(onXRFrame);
+
+        // Bind the framebuffer for rendering
+        gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
+
+        const width = session.renderState.baseLayer.framebufferWidth;
+        const height = session.renderState.baseLayer.framebufferHeight;
+
+        // Clear the entire framebuffer with transparent black
+        gl.viewport(0, 0, width, height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Get the viewer's pose in the reference space
+        let pose = frame.getViewerPose(xrRefSpace);
+        if (pose) {
+          const p = pose.transform.position;
+          const q = pose.transform.orientation;
+
+          // Compute pitch angle from the quaternion
+          const sinp = 2 * (q.w * q.x - q.y * q.z);
+          let pitch;
+          if (Math.abs(sinp) >= 1) {
+            pitch = Math.PI / 2 * Math.sign(sinp); // Use 90 degrees if out of range
+          } else {
+            pitch = Math.asin(sinp);
+          }
+          const pitchDegrees = pitch * (180 / Math.PI);
+
+          // Display the position and pitch angle
+          document.getElementById('pose').innerText = "Position: " +
+            p.x.toFixed(3) + ", " + p.y.toFixed(3) + ", " + p.z.toFixed(3) +
+            " | Pitch: " + pitchDegrees.toFixed(2) + "°";
+
+          const currentTime = Date.now();
+
+          // Check if the user is looking downwards
+          if (pitchDegrees < LOOKING_DOWN_THRESHOLD) {
+            if (!isLookingDown) {
+              // User just started looking down; start the timer
+              isLookingDown = true;
+              lookingDownStartTime = currentTime;
+            } else {
+              // User is still looking down; check if time threshold has passed
+              if (currentTime - lookingDownStartTime >= TIME_THRESHOLD) {
+                // Time threshold passed; render the rectangle
+                renderRectangle(currentTime, width, height);
+              }
+            }
+          } else {
+            // User is not looking downwards; reset the timer
+            isLookingDown = false;
+            lookingDownStartTime = null;
+          }
+        } else {
+          // If no pose is available
+          document.getElementById('pose').innerText = "Position: (null pose)";
+        }
+      }
+
+      function renderRectangle(currentTime, width, height) {
+        // Enable scissor test to restrict rendering to a rectangle
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(width / 4, height / 4, width / 2, height / 2);
+
+        // Calculate dynamic color based on time
+        gl.clearColor(
+          Math.cos(currentTime / 2000),
+          Math.cos(currentTime / 4000),
+          Math.cos(currentTime / 6000),
+          0.5
+        );
+
+        // Clear the color and depth buffers within the scissor rectangle
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Disable scissor test after rendering
+        gl.disable(gl.SCISSOR_TEST);
+      }
+
+      // Initialize WebXR
+      initXR();
+    </script>
+  </body>
 </html>
