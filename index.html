@@ -8,7 +8,7 @@
     <link rel='icon' type='image/png' sizes='32x32' href='favicon-32x32.png'>
     <link rel='icon' type='image/png' sizes='96x96' href='favicon-96x96.png'>
     <link rel='stylesheet' href='css/common.css'>
-    <title>Barebones AR with Headset Tracking and Timer</title>
+    <title>Barebones AR with Red Transparent Rectangle</title>
   </head>
   <body>
     <div id="overlay">
@@ -18,7 +18,7 @@
           <p>
             This sample demonstrates extremely simple use of an "immersive-ar"
             session with no library dependencies, with an optional DOM overlay.
-            It draws a rectangle with a slowly changing color after you've been
+            It draws a flipped red transparent rectangle after you've been
             looking downwards for 5 seconds.
             <a class="back" href="./index.html">Back</a>
           </p>
@@ -184,17 +184,21 @@
       }
 
       function renderRectangle(currentTime, width, height) {
-        // Enable scissor test to restrict rendering to a rectangle
-        gl.enable(gl.SCISSOR_TEST);
-        gl.scissor(width / 4, height / 4, width / 2, height / 2);
+        // Define the rectangle dimensions
+        let x = width / 4;
+        let y = height / 4;
+        let rectWidth = width / 2;
+        let rectHeight = height / 2;
 
-        // Calculate dynamic color based on time
-        gl.clearColor(
-          Math.cos(currentTime / 2000),
-          Math.cos(currentTime / 4000),
-          Math.cos(currentTime / 6000),
-          0.5
-        );
+        // Flip the rectangle vertically by adjusting the y-coordinate
+        y = height - y - rectHeight;
+
+        // Enable scissor test to restrict rendering to the rectangle area
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(x, y, rectWidth, rectHeight);
+
+        // Set the color to red with transparency
+        gl.clearColor(1.0, 0.0, 0.0, 0.5);
 
         // Clear the color and depth buffers within the scissor rectangle
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
